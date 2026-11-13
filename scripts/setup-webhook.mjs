@@ -1,5 +1,6 @@
-import { loadEnvConfig } from "@next/env";
+import envPackage from "@next/env";
 
+const { loadEnvConfig } = envPackage;
 loadEnvConfig(process.cwd());
 
 async function main() {
