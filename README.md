@@ -70,6 +70,8 @@ DEVELOPMENT.md                          архитектура, процесс �
 
 ## Deployment
 
-Production-ветка — `main`. После подключения приватного GitHub-репозитория к Vercel каждый push в `main` должен запускать production deployment автоматически. Перед каждым push обязателен `npm run check`.
+Production-адрес: https://video-reels-bot.vercel.app
+
+Приватный репозиторий `golikov-denis/video-reels-bot` подключён к Vercel. Production-ветка — `main`: каждый push в неё запускает production deployment автоматически. Перед каждым push обязателен `npm run check`.
 
 Подробности — в `DEVELOPMENT.md`.
