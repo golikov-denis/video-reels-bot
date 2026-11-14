@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { connection } from "next/server";
 import { Suspense } from "react";
 import { getUploadSessionState } from "@/lib/uploads";
 import { UploadForm } from "./upload-form";
@@ -23,6 +24,7 @@ async function UploadContent({
 }: {
   params: Promise<{ token: string }>;
 }) {
+  await connection();
   const { token } = await params;
   const state = await getUploadSessionState(token);
 
