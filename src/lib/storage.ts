@@ -1,4 +1,7 @@
+import { createReadStream } from "node:fs";
+import { stat } from "node:fs/promises";
 import {
+  GetObjectCommand,
   HeadObjectCommand,
   PutObjectCommand,
   S3Client,
@@ -63,4 +66,45 @@ export async function inspectUpload(objectKey: string): Promise<{
     size: result.ContentLength ?? -1,
     contentType: result.ContentType?.split(";", 1)[0]?.trim().toLowerCase() ?? "",
   };
+}
+
+export async function createSourceUrl(objectKey: string): Promise<string> {
+  const config = readStorageConfig();
+  return getSignedUrl(
+    getClient(config),
+    new GetObjectCommand({ Bucket: config.bucket, Key: objectKey }),
+    { expiresIn: 3600 },
+  );
+}
+
+export async function createDownloadUrl(objectKey: string): Promise<string> {
+  const config = readStorageConfig();
+  return getSignedUrl(
+    getClient(config),
+    new GetObjectCommand({
+      Bucket: config.bucket,
+      Key: objectKey,
+      ResponseContentDisposition: 'attachment; filename="reel.mp4"',
+      ResponseContentType: "video/mp4",
+    }),
+    { expiresIn: 600 },
+  );
+}
+
+export async function uploadResult(
+  objectKey: string,
+  filePath: string,
+): Promise<number> {
+  const config = readStorageConfig();
+  const file = await stat(filePath);
+  await getClient(config).send(
+    new PutObjectCommand({
+      Bucket: config.bucket,
+      Key: objectKey,
+      Body: createReadStream(filePath),
+      ContentLength: file.size,
+      ContentType: "video/mp4",
+    }),
+  );
+  return file.size;
 }

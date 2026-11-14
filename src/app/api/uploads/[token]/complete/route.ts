@@ -3,6 +3,7 @@ import { sendUploadCreatedMessage } from "@/lib/telegram";
 import { uploadErrorResponse } from "@/lib/http";
 import { completeUpload } from "@/lib/uploads";
 import { UploadError } from "@/lib/upload-validation";
+import { triggerWorker } from "@/lib/worker";
 
 export async function POST(
   _request: Request,
@@ -13,6 +14,12 @@ export async function POST(
     const result = await completeUpload(token);
 
     if (result.created) {
+      try {
+        await triggerWorker(result.jobId);
+      } catch {
+        console.error("Worker trigger failed");
+      }
+
       try {
         await sendUploadCreatedMessage(
           readTelegramConfig(),

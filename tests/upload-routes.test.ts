@@ -7,12 +7,14 @@ const uploadMocks = vi.hoisted(() => ({
 const telegramMocks = vi.hoisted(() => ({
   sendUploadCreatedMessage: vi.fn(),
 }));
+const workerMocks = vi.hoisted(() => ({ triggerWorker: vi.fn() }));
 
 vi.mock("../src/lib/uploads", () => uploadMocks);
 vi.mock("../src/lib/telegram", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/lib/telegram")>()),
   sendUploadCreatedMessage: telegramMocks.sendUploadCreatedMessage,
 }));
+vi.mock("../src/lib/worker", () => workerMocks);
 
 import { POST as preparePOST } from "../src/app/api/uploads/[token]/prepare/route";
 import { POST as completePOST } from "../src/app/api/uploads/[token]/complete/route";
@@ -35,6 +37,7 @@ beforeEach(() => {
   uploadMocks.prepareUpload.mockReset();
   uploadMocks.completeUpload.mockReset();
   telegramMocks.sendUploadCreatedMessage.mockReset().mockResolvedValue(undefined);
+  workerMocks.triggerWorker.mockReset().mockResolvedValue(undefined);
 });
 
 describe("prepare upload route", () => {

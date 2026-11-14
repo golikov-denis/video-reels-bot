@@ -1,6 +1,6 @@
 import { Pool } from "@neondatabase/serverless";
 import { drizzle, type NeonDatabase } from "drizzle-orm/neon-serverless";
-import { readDatabaseUrl } from "@/lib/config";
+import { readDatabaseUrl } from "../lib/config";
 import * as schema from "./schema";
 
 export type Database = NeonDatabase<typeof schema>;

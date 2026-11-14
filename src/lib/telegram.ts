@@ -106,7 +106,7 @@ export async function sendStartMessage(
   const text =
     "Привет! Загрузите длинное видео по защищённой ссылке:\n\n" +
     `${uploadUrl}\n\n` +
-    "Ссылка действует 30 минут. После загрузки будет создана задача; монтаж появится на следующем этапе.";
+    "Ссылка действует 30 минут. После загрузки я создам вертикальный ролик из первых 30 секунд видео.";
   await sendMessage(config, chatId, text, fetchImpl);
 }
 
@@ -119,7 +119,47 @@ export async function sendUploadCreatedMessage(
   await sendMessage(
     config,
     chatId.toString(),
-    `Видео загружено. Задача ${jobId} создана и стоит в очереди. Монтаж появится на следующем этапе.`,
+    `Видео загружено. Задача ${jobId} создана. Начинаю монтаж вертикального ролика.`,
+    fetchImpl,
+  );
+}
+
+export async function sendResultVideo(
+  config: TelegramConfig,
+  chatId: bigint,
+  downloadUrl: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<void> {
+  const response = await fetchImpl(
+    `https://api.telegram.org/bot${config.botToken}/sendVideo`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId.toString(),
+        video: downloadUrl,
+        caption: "Готово! Ваш вертикальный ролик (до 30 секунд).",
+        supports_streaming: true,
+      }),
+      cache: "no-store",
+      signal: AbortSignal.timeout(20_000),
+    },
+  );
+  const result = (await response.json()) as { ok?: boolean };
+  if (!response.ok || result.ok !== true) {
+    throw new Error("Telegram video delivery failed");
+  }
+}
+
+export async function sendProcessingFailedMessage(
+  config: TelegramConfig,
+  chatId: bigint,
+  fetchImpl: typeof fetch = fetch,
+): Promise<void> {
+  await sendMessage(
+    config,
+    chatId.toString(),
+    "Не удалось обработать это видео. Проверьте, что файл открывается, его длительность не больше 60 минут, и попробуйте загрузить другое видео через /start.",
     fetchImpl,
   );
 }
