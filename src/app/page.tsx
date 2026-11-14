@@ -3,18 +3,18 @@ import Link from "next/link";
 const steps = [
   {
     number: "01",
-    title: "Загрузите видео",
-    text: "Отправьте исходник в Telegram — без сложного редактора.",
+    title: "Получите ссылку",
+    text: "Отправьте /start боту в Telegram — он выдаст защищённую ссылку.",
   },
   {
     number: "02",
-    title: "Выберите настройки",
-    text: "Язык титров, перевод и баннер — в коротком сценарии.",
+    title: "Загрузите видео",
+    text: "Выберите исходник на телефоне или компьютере и создайте задачу.",
   },
   {
     number: "03",
-    title: "Получите ролик",
-    text: "Готовый вертикальный результат вернётся прямо в Telegram.",
+    title: "Следующий этап — монтаж",
+    text: "Сейчас видео ставится в очередь. Обработка ещё не запускается.",
   },
 ];
 
@@ -30,15 +30,15 @@ export default function Home() {
       </header>
 
       <section className="hero" aria-labelledby="hero-title">
-        <div className="status"><span aria-hidden="true" />Сервис запускается</div>
+        <div className="status"><span aria-hidden="true" />Загрузка видео доступна</div>
         <h1 id="hero-title">Из длинного видео —<br /><em>готовый ролик.</em></h1>
         <p className="hero-copy">
-          Находим законченные интересные моменты, добавляем титры и ваш баннер.
-          Без обещаний идеального монтажа — с понятными настройками и результатом в Telegram.
+          Начните с команды /start в Telegram, загрузите исходник по защищённой ссылке
+          и получите номер задачи. Автоматический монтаж будет подключён следующим этапом.
         </p>
       </section>
 
-      <section className="steps" aria-label="Как будет работать сервис">
+      <section className="steps" aria-label="Как работает сервис">
         {steps.map((step) => (
           <article className="step" key={step.number}>
             <span className="step-number">{step.number}</span>
@@ -49,7 +49,7 @@ export default function Home() {
       </section>
 
       <footer className="footer">
-        <p>Первый этап: каркас сервиса и защищённая связь с Telegram.</p>
+        <p>Второй этап: загрузка видео и очередь задач.</p>
         <a href="/api/health">Проверить состояние сервиса <span aria-hidden="true">↗</span></a>
       </footer>
     </main>

@@ -4,22 +4,27 @@ Telegram-бот для автоматического создания верт�
 
 ## Текущий объём
 
-Реализован первый каркас:
+Реализованы первый и второй этапы:
 
 - русскоязычная стартовая страница;
-- `GET /api/health` с HTTP 200 и состоянием конфигурации без секретов;
+- `GET /api/health` с HTTP 200 и состоянием конфигурации Telegram без секретов;
 - `POST /api/telegram/webhook` с проверкой `X-Telegram-Bot-Api-Secret-Token`;
-- базовый ответ на `/start`;
-- автоматические тесты webhook и health-check;
+- идемпотентная обработка `/start` и сохранение пользователя в Neon PostgreSQL;
+- одноразовая ссылка на загрузку, действующая 30 минут;
+- прямая загрузка MP4, MOV, MKV или WebM размером до 2 ГБ в приватное S3-совместимое хранилище;
+- проверка фактически загруженных размера и MIME-типа на сервере;
+- транзакционное создание задачи со статусом `queued` без повторных задач при повторном запросе;
+- автоматические тесты webhook, проверки метаданных и API загрузки;
 - единая команда `npm run check`.
 
-Загрузка и обработка видео, Mini App, база данных, хранилище и платежи на этом этапе не реализованы и не имитируются.
+Обработка видео, Mini App, распознавание речи, перевод, субтитры, платежи и история ещё не реализованы и не имитируются. Статус `queued` означает только постановку в очередь, а не готовый ролик.
 
 ## Требования
 
-- Node.js 24;
+- Node.js 24 или новее, поддерживаемая Next.js версия;
 - npm;
-- аккаунты GitHub, Vercel и бот в @BotFather для публикации.
+- аккаунты GitHub, Vercel, Neon и Backblaze;
+- бот в @BotFather для публикации.
 
 ## Проверка кода
 
@@ -28,23 +33,25 @@ npm ci
 npm run check
 ```
 
-Команда последовательно запускает ESLint, TypeScript, Vitest и production build. Локальный Telegram-бот, длительный end-to-end сценарий и туннели не используются.
+Команда последовательно запускает ESLint, TypeScript, Vitest и production build. Тесты используют моки и не заменяют проверку реальных Neon, Backblaze B2 и Telegram после deployment. Локальный Telegram-бот, длительный end-to-end сценарий и туннели не используются.
 
 ## Настройка после deployment
 
-1. Скопируйте `.env.example` в `.env` и заполните три переменные локально. Файл `.env` исключён из Git.
-2. В Vercel добавьте те же значения в Project Settings → Environment Variables → Production.
-3. Убедитесь, что production deployment имеет статус READY.
-4. В `APP_URL` укажите production HTTPS-адрес без завершающего `/`.
-5. Зарегистрируйте webhook:
+1. Скопируйте `.env.example` в `.env` и заполните переменные локально. Файл `.env` исключён из Git.
+2. Подключите Neon к проекту Vercel и добавьте серверные переменные Telegram, приложения и B2 в Project Settings → Environment Variables.
+3. Используйте приватный B2 bucket и отдельный ключ только с нужными правами. Настройте CORS для точного HTTPS-адреса приложения и удаление объектов через один день.
+4. В Vercel установите Build Command override: `npm run db:migrate && npm run build`. Миграции применяются до сборки; при ошибке миграции deployment не публикуется.
+5. Убедитесь, что deployment имеет статус READY.
+6. В `APP_URL` укажите HTTPS-адрес соответствующего окружения без завершающего `/`.
+7. Зарегистрируйте webhook локально с серверными настройками соответствующего бота:
 
 ```bash
 npm run webhook:setup
 ```
 
-6. Проверьте `https://ВАШ-ДОМЕН/api/health`, затем отправьте `/start` боту в Telegram.
+8. Проверьте `https://ВАШ-ДОМЕН/api/health`, затем отправьте `/start` боту в Telegram, откройте полученную ссылку и загрузите небольшой настоящий видеофайл.
 
-Для Preview используйте отдельного тестового бота и отдельные данные. Не переключайте production webhook на Preview.
+Для Preview используйте отдельного тестового бота, отдельный B2 bucket и отдельную Neon branch. Не переключайте production webhook на Preview. Для Preview задайте стабильный branch alias в `APP_URL`, чтобы CORS и ссылки не зависели от адреса конкретного deployment.
 
 ## Переменные окружения
 
@@ -52,26 +59,41 @@ npm run webhook:setup
 | --- | --- |
 | `TELEGRAM_BOT_TOKEN` | Серверный токен из @BotFather |
 | `TELEGRAM_WEBHOOK_SECRET` | Отдельный секрет для проверки входящих запросов |
-| `APP_URL` | Публичный production HTTPS-адрес; нужен только скрипту настройки webhook |
+| `APP_URL` | Публичный HTTPS-адрес приложения; используется в ссылках загрузки и настройке webhook |
+| `DATABASE_URL` | Pooled-строка подключения Neon для приложения и миграций |
+| `DATABASE_URL_UNPOOLED` | Прямая строка подключения Neon, создаётся интеграцией |
+| `S3_ACCESS_KEY_ID` | Идентификатор отдельного ключа B2 |
+| `S3_SECRET_ACCESS_KEY` | Секретная часть ключа B2 |
+| `S3_ENDPOINT` | S3 endpoint региона B2 |
+| `S3_REGION` | Регион B2, например `eu-central-003` |
+| `S3_BUCKET` | Имя приватного bucket соответствующего окружения |
 
-Настоящие значения нельзя выводить в чат, коммитить или записывать в журналы. При компрометации токен нужно перевыпустить через @BotFather, секрет webhook — заменить в Vercel и повторно зарегистрировать webhook.
+Настоящие значения нельзя выводить в чат, коммитить или записывать в журналы. При компрометации токен нужно перевыпустить через @BotFather, секрет webhook — заменить в Vercel и повторно зарегистрировать webhook, ключи B2 — перевыпустить, пароль базы — сбросить в Neon и повторить deployment.
 
 ## Структура
 
 ```text
-src/app/api/health/route.ts             health-check
-src/app/api/telegram/webhook/route.ts   входной webhook
-src/lib/config.ts                       серверная конфигурация
-src/lib/telegram.ts                     проверка и отправка сообщений Telegram
-scripts/setup-webhook.mjs               регистрация webhook на Vercel
-tests/webhook.test.ts                   автоматические тесты
-DEVELOPMENT.md                          архитектура, процесс и следующие этапы
+src/app/api/health/route.ts                 health-check
+src/app/api/telegram/webhook/route.ts       входной webhook
+src/app/api/uploads/[token]/prepare/       подготовка прямой загрузки
+src/app/api/uploads/[token]/complete/      проверка файла и создание задачи
+src/app/upload/[token]/                    страница загрузки
+src/db/                                    подключение Neon и схема Drizzle
+src/lib/start.ts                           идемпотентная обработка /start
+src/lib/uploads.ts                         состояние ссылки и создание задачи
+src/lib/storage.ts                         подписанные URL и проверка объекта B2
+src/lib/telegram.ts                        проверка и отправка сообщений Telegram
+drizzle/                                   версионированные SQL-миграции
+scripts/setup-webhook.mjs                  регистрация webhook на Vercel
+scripts/configure-storage.mjs              CORS и lifecycle bucket
+tests/                                     автоматические тесты
+DEVELOPMENT.md                             архитектура, процесс и следующие этапы
 ```
 
 ## Deployment
 
 Production-адрес: https://video-reels-bot.vercel.app
 
-Приватный репозиторий `golikov-denis/video-reels-bot` подключён к Vercel. Production-ветка — `main`: каждый push в неё запускает production deployment автоматически. Перед каждым push обязателен `npm run check`.
+Приватный репозиторий `golikov-denis/video-reels-bot` подключён к Vercel. Production-ветка — `main`: каждый push в неё запускаёт production deployment автоматически. Рискованные изменения сначала проходят отдельную ветку и полный Preview smoke-test. Перед каждым push обязателен `npm run check`.
 
 Подробности — в `DEVELOPMENT.md`.

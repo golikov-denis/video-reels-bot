@@ -1,6 +1,9 @@
-import { readTelegramConfig } from "@/lib/config";
+import { readAppUrl, readTelegramConfig } from "@/lib/config";
 import {
-  getStartChatId,
+  registerTelegramUpdate,
+  releaseTelegramUpdate,
+} from "@/lib/start";
+import {
   parseTelegramUpdate,
   sendStartMessage,
   webhookSecretMatches,
@@ -37,12 +40,22 @@ export async function POST(request: Request) {
   const update = parseTelegramUpdate(raw);
   if (!update) return errorResponse(400);
 
-  const chatId = getStartChatId(update);
-  if (chatId === null) return Response.json({ ok: true });
-
   try {
-    await sendStartMessage(config, chatId);
-    return Response.json({ ok: true });
+    const action = await registerTelegramUpdate(update);
+    if (action.kind !== "start") return Response.json({ ok: true });
+
+    const uploadUrl = new URL(
+      `/upload/${action.token}`,
+      `${readAppUrl()}/`,
+    ).toString();
+
+    try {
+      await sendStartMessage(config, action.chatId, uploadUrl);
+      return Response.json({ ok: true });
+    } catch {
+      await releaseTelegramUpdate(update.update_id);
+      return errorResponse(502);
+    }
   } catch {
     return errorResponse(502);
   }

@@ -5,14 +5,11 @@ export type TelegramUpdate = {
   update_id: number;
   message?: {
     message_id: number;
+    from?: { id: number };
     chat: { id: number };
     text?: string;
   };
 };
-
-const START_TEXT =
-  "Привет! Я помогу превратить длинное видео в короткий вертикальный ролик.\n\n" +
-  "Сейчас сервис запускается. Загрузка видео появится на следующем этапе.";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -48,6 +45,14 @@ export function parseTelegramUpdate(raw: string): TelegramUpdate | null {
       ) {
         return null;
       }
+      if (value.message.from !== undefined) {
+        if (
+          !isRecord(value.message.from) ||
+          !Number.isSafeInteger(value.message.from.id)
+        ) {
+          return null;
+        }
+      }
     }
 
     return value as unknown as TelegramUpdate;
@@ -56,25 +61,31 @@ export function parseTelegramUpdate(raw: string): TelegramUpdate | null {
   }
 }
 
-export function getStartChatId(update: TelegramUpdate): number | null {
-  const text = update.message?.text;
-  if (!text || !update.message) return null;
+export function getStartDetails(
+  update: TelegramUpdate,
+): { userId: number; chatId: number } | null {
+  const message = update.message;
+  const text = message?.text;
+  if (!message || !text || !message.from) return null;
 
   const isStart = /^\/start(?:@[A-Za-z0-9_]+)?(?:\s|$)/.test(text.trim());
-  return isStart ? update.message.chat.id : null;
+  return isStart
+    ? { userId: message.from.id, chatId: message.chat.id }
+    : null;
 }
 
-export async function sendStartMessage(
+async function sendMessage(
   config: TelegramConfig,
-  chatId: number,
-  fetchImpl: typeof fetch = fetch,
+  chatId: number | string,
+  text: string,
+  fetchImpl: typeof fetch,
 ): Promise<void> {
   const response = await fetchImpl(
     `https://api.telegram.org/bot${config.botToken}/sendMessage`,
     {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ chat_id: chatId, text: START_TEXT }),
+      body: JSON.stringify({ chat_id: chatId, text }),
       cache: "no-store",
       signal: AbortSignal.timeout(8_000),
     },
@@ -84,4 +95,31 @@ export async function sendStartMessage(
   if (!response.ok || result.ok !== true) {
     throw new Error("Telegram message delivery failed");
   }
+}
+
+export async function sendStartMessage(
+  config: TelegramConfig,
+  chatId: number,
+  uploadUrl: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<void> {
+  const text =
+    "Привет! Загрузите длинное видео по защищённой ссылке:\n\n" +
+    `${uploadUrl}\n\n` +
+    "Ссылка действует 30 минут. После загрузки будет создана задача; монтаж появится на следующем этапе.";
+  await sendMessage(config, chatId, text, fetchImpl);
+}
+
+export async function sendUploadCreatedMessage(
+  config: TelegramConfig,
+  chatId: bigint,
+  jobId: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<void> {
+  await sendMessage(
+    config,
+    chatId.toString(),
+    `Видео загружено. Задача ${jobId} создана и стоит в очереди. Монтаж появится на следующем этапе.`,
+    fetchImpl,
+  );
 }

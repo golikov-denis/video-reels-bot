@@ -1,3 +1,4 @@
 # Local secrets must never be uploaded by Vercel CLI.
 .env
 .env.*
+.local
