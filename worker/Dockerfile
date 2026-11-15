@@ -15,8 +15,10 @@ RUN mkdir -p /opt/argos-models \
   && python3 -c 'from argostranslate import package; package.install_from_path("/tmp/translate-en_ru.argosmodel")' \
   && curl -fL --retry 3 -A "Mozilla/5.0" "https://argos-net.com/v1/translate-ru_en-1_9.argosmodel" -o /tmp/translate-ru_en.argosmodel \
   && python3 -c 'from argostranslate import package; package.install_from_path("/tmp/translate-ru_en.argosmodel")' \
+  && python3 -c 'import stanza; stanza.download("en", model_dir="/opt/argos-models/translate-en_ru-1_9/stanza", processors="tokenize"); stanza.download("ru", model_dir="/opt/argos-models/translate-ru_en-1_9/stanza", processors="tokenize")' \
+  && python3 -c 'from argostranslate import translate; print(translate.translate("Hello world.", "en", "ru")); print(translate.translate("Привет, мир.", "ru", "en"))' \
   && rm -f /tmp/translate-en_ru.argosmodel /tmp/translate-ru_en.argosmodel \
-  && chmod -R a+r /opt/whisper-model /opt/argos-models
+  && chmod -R a+rX /opt/whisper-model /opt/argos-models
 
 WORKDIR /app
 COPY package.json package-lock.json ./
