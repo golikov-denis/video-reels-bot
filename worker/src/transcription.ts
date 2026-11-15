@@ -172,6 +172,7 @@ export async function selectSourceFragment(
       transcription,
     };
   } catch (error) {
+    console.error("Source transcription failed", error);
     if (requireTranscription) {
       if (error instanceof MediaError) throw error;
       throw new MediaError("subtitles_unavailable", false);
