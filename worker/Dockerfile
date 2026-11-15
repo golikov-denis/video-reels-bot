@@ -16,7 +16,6 @@ RUN mkdir -p /opt/argos-models \
   && curl -fL --retry 3 -A "Mozilla/5.0" "https://argos-net.com/v1/translate-ru_en-1_9.argosmodel" -o /tmp/translate-ru_en.argosmodel \
   && python3 -c 'from argostranslate import package; package.install_from_path("/tmp/translate-ru_en.argosmodel")' \
   && python3 -c 'import stanza; stanza.download("en", model_dir="/opt/argos-models/translate-en_ru-1_9/stanza", processors="tokenize"); stanza.download("ru", model_dir="/opt/argos-models/translate-ru_en-1_9/stanza", processors="tokenize")' \
-  && python3 -c 'from argostranslate import translate; print(translate.translate("Hello world.", "en", "ru")); print(translate.translate("Привет, мир.", "ru", "en"))' \
   && rm -f /tmp/translate-en_ru.argosmodel /tmp/translate-ru_en.argosmodel \
   && chmod -R a+rX /opt/whisper-model /opt/argos-models
 
@@ -29,6 +28,8 @@ COPY tsconfig.json ./
 COPY src ./src
 COPY worker/tsconfig.json ./worker/tsconfig.json
 COPY worker/src ./worker/src
+RUN printf '%s' '{"from":"en","to":"ru","texts":["Hello world."]}' | python3 worker/src/translate.py \
+  && printf '%s' '{"from":"ru","to":"en","texts":["Привет, мир."]}' | python3 worker/src/translate.py
 
 ENV NODE_ENV=production
 ENV WHISPER_MODEL=/opt/whisper-model

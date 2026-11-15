@@ -1,6 +1,19 @@
 import json
 import sys
 
+import stanza
+
+_stanza_pipeline = stanza.Pipeline
+
+
+def _offline_stanza_pipeline(*args, **kwargs):
+    kwargs["download_method"] = None
+    return _stanza_pipeline(*args, **kwargs)
+
+
+# Argos does not expose this flag; all required models are baked into the image.
+stanza.Pipeline = _offline_stanza_pipeline
+
 from argostranslate import translate
 
 
