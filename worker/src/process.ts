@@ -76,6 +76,7 @@ async function renderClaim(claim: ClaimedJob) {
         subtitlesPath = join(directory, "subtitles.ass");
         await writeFile(subtitlesPath, ass, "utf8");
       } catch (error) {
+        console.error("Subtitle creation failed", error);
         if (error instanceof MediaError) throw error;
         throw new MediaError(
           options.subtitleMode === "translated"
