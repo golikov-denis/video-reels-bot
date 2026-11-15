@@ -16,6 +16,29 @@ describe("результат faster-whisper", () => {
     });
   });
 
+  it("сохраняет точные тайминги слов для karaoke", () => {
+    expect(
+      parseTranscription({
+        language: "ru",
+        languageProbability: 0.9,
+        segments: [
+          {
+            start: 1,
+            end: 2,
+            text: "Привет мир",
+            words: [
+              { start: 1, end: 1.4, word: "Привет" },
+              { start: 1.5, end: 2, word: "мир" },
+            ],
+          },
+        ],
+      }).segments[0]?.words,
+    ).toEqual([
+      { start: 1, end: 1.4, word: "Привет" },
+      { start: 1.5, end: 2, word: "мир" },
+    ]);
+  });
+
   it("отклоняет повреждённые сегменты", () => {
     expect(() =>
       parseTranscription({

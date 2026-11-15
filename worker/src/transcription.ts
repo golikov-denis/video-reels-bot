@@ -1,7 +1,14 @@
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { inspectSourceDetails } from "./media";
-import { selectFragment, type FragmentSelection, type TranscriptSegment } from "./selection";
+import { inspectSourceDetails, MediaError } from "./media";
+import {
+  selectFragment,
+  type FragmentSelection,
+  type TranscriptSegment,
+  type TranscriptWord,
+} from "./selection";
+
+export type { TranscriptWord } from "./selection";
 
 export type Transcription = {
   language: string | null;
@@ -11,6 +18,28 @@ export type Transcription = {
 
 export interface TranscriptionProvider {
   transcribe(source: string): Promise<Transcription>;
+}
+
+function parseWords(value: unknown): TranscriptWord[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) throw new Error("Invalid transcription words");
+  return value.map((item) => {
+    if (typeof item !== "object" || item === null) {
+      throw new Error("Invalid transcription word");
+    }
+    const word = item as Record<string, unknown>;
+    if (
+      typeof word.start !== "number" ||
+      !Number.isFinite(word.start) ||
+      typeof word.end !== "number" ||
+      !Number.isFinite(word.end) ||
+      word.end <= word.start ||
+      typeof word.word !== "string"
+    ) {
+      throw new Error("Invalid transcription word");
+    }
+    return { start: word.start, end: word.end, word: word.word };
+  });
 }
 
 export function parseTranscription(value: unknown): Transcription {
@@ -23,12 +52,21 @@ export function parseTranscription(value: unknown): Transcription {
     const segment = item as Record<string, unknown>;
     if (
       typeof segment.start !== "number" ||
+      !Number.isFinite(segment.start) ||
       typeof segment.end !== "number" ||
+      !Number.isFinite(segment.end) ||
+      segment.end <= segment.start ||
       typeof segment.text !== "string"
     ) {
       throw new Error("Invalid transcription segment");
     }
-    return { start: segment.start, end: segment.end, text: segment.text };
+    const words = parseWords(segment.words);
+    return {
+      start: segment.start,
+      end: segment.end,
+      text: segment.text,
+      ...(words !== undefined ? { words } : {}),
+    };
   });
   return {
     language: typeof input.language === "string" ? input.language.slice(0, 16) : null,
@@ -95,17 +133,35 @@ export const fasterWhisperProvider: TranscriptionProvider = {
 export async function selectSourceFragment(
   sourceUrl: string,
   provider: TranscriptionProvider = fasterWhisperProvider,
-): Promise<{ sourceDurationSeconds: number; selection: FragmentSelection }> {
+  options: { requireTranscription?: boolean } = {},
+): Promise<{
+  sourceDurationSeconds: number;
+  selection: FragmentSelection;
+  transcription: Transcription | null;
+}> {
   const source = await inspectSourceDetails(sourceUrl);
-  if (!source.hasAudio || source.durationSeconds <= 30) {
+  const requireTranscription = options.requireTranscription === true;
+  if (!source.hasAudio) {
+    if (requireTranscription) throw new MediaError("subtitles_unavailable", false);
     return {
       sourceDurationSeconds: source.durationSeconds,
       selection: selectFragment(source.durationSeconds),
+      transcription: null,
+    };
+  }
+  if (source.durationSeconds <= 30 && !requireTranscription) {
+    return {
+      sourceDurationSeconds: source.durationSeconds,
+      selection: selectFragment(source.durationSeconds),
+      transcription: null,
     };
   }
 
   try {
     const transcription = await provider.transcribe(sourceUrl);
+    if (requireTranscription && transcription.segments.length === 0) {
+      throw new MediaError("subtitles_unavailable", false);
+    }
     return {
       sourceDurationSeconds: source.durationSeconds,
       selection: selectFragment(
@@ -113,11 +169,17 @@ export async function selectSourceFragment(
         transcription.segments,
         transcription.language,
       ),
+      transcription,
     };
-  } catch {
+  } catch (error) {
+    if (requireTranscription) {
+      if (error instanceof MediaError) throw error;
+      throw new MediaError("subtitles_unavailable", false);
+    }
     return {
       sourceDurationSeconds: source.durationSeconds,
       selection: selectFragment(source.durationSeconds),
+      transcription: null,
     };
   }
 }

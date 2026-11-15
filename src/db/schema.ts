@@ -52,6 +52,18 @@ export const uploadSessions = pgTable(
     originalFileName: text("original_file_name"),
     fileSize: bigint("file_size", { mode: "number" }),
     contentType: text("content_type"),
+    subtitleMode: varchar("subtitle_mode", { length: 16 }).notNull().default("off"),
+    subtitleStyle: varchar("subtitle_style", { length: 16 })
+      .notNull()
+      .default("standard"),
+    translationDirection: varchar("translation_direction", { length: 8 }),
+    bannerPosition: varchar("banner_position", { length: 24 })
+      .notNull()
+      .default("top_right"),
+    bannerScale: doublePrecision("banner_scale").notNull().default(0.25),
+    bannerObjectKey: text("banner_object_key"),
+    bannerFileSize: bigint("banner_file_size", { mode: "number" }),
+    bannerContentType: text("banner_content_type"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -78,6 +90,16 @@ export const jobs = pgTable(
     originalFileName: text("original_file_name").notNull(),
     sourceSize: bigint("source_size", { mode: "number" }).notNull(),
     sourceContentType: text("source_content_type").notNull(),
+    subtitleMode: varchar("subtitle_mode", { length: 16 }).notNull().default("off"),
+    subtitleStyle: varchar("subtitle_style", { length: 16 })
+      .notNull()
+      .default("standard"),
+    translationDirection: varchar("translation_direction", { length: 8 }),
+    bannerPosition: varchar("banner_position", { length: 24 })
+      .notNull()
+      .default("top_right"),
+    bannerScale: doublePrecision("banner_scale").notNull().default(0.25),
+    bannerObjectKey: text("banner_object_key"),
     status: jobStatus("status").notNull().default("queued"),
     attempts: integer("attempts").notNull().default(0),
     leaseOwner: varchar("lease_owner", { length: 128 }),

@@ -96,6 +96,21 @@ describe("проверка payload callback", () => {
     expect(parseWorkerCallbackPayload(legacy)).toEqual(legacy);
   });
 
+  it("принимает явные ошибки субтитров и перевода", () => {
+    for (const errorCode of [
+      "subtitles_unavailable",
+      "translation_language_mismatch",
+      "translation_failed",
+    ] as const) {
+      expect(
+        parseWorkerCallbackPayload({ jobId, status: "failed", errorCode }),
+      ).toEqual({ jobId, status: "failed", errorCode });
+    }
+    expect(() =>
+      parseWorkerCallbackPayload({ jobId, status: "failed", errorCode: "unknown" }),
+    ).toThrow(WorkerCallbackError);
+  });
+
   it("отклоняет противоречивые границы и неизвестную стратегию", () => {
     const invalidPatches = [
       { selectionStartSeconds: 24, selectionEndSeconds: 23 },

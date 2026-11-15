@@ -1,6 +1,17 @@
 "use client";
 
-import { useState } from "react";
+/* eslint-disable @next/next/no-img-element */
+
+import { useEffect, useMemo, useState } from "react";
+import {
+  isAllowedBannerContentType,
+  MAX_BANNER_BYTES,
+  resolveBannerContentType,
+  type BannerPosition,
+  type SubtitleMode,
+  type SubtitleStyle,
+  type TranslationDirection,
+} from "@/lib/render-options";
 import {
   isAllowedContentType,
   MAX_FILE_BYTES,
@@ -16,7 +27,8 @@ type SelectedFile = {
 
 function formatBytes(bytes: number): string {
   if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(2)} ГБ`;
-  return `${(bytes / 1024 ** 2).toFixed(1)} МБ`;
+  if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(1)} МБ`;
+  return `${Math.max(1, Math.round(bytes / 1024))} КБ`;
 }
 
 async function responseJson(response: Response): Promise<Record<string, unknown>> {
@@ -61,11 +73,28 @@ function putFile(
 
 export function UploadForm({ token }: { token: string }) {
   const [selected, setSelected] = useState<SelectedFile | null>(null);
+  const [banner, setBanner] = useState<SelectedFile | null>(null);
+  const [subtitleMode, setSubtitleMode] = useState<SubtitleMode>("off");
+  const [subtitleStyle, setSubtitleStyle] = useState<SubtitleStyle>("standard");
+  const [translationDirection, setTranslationDirection] =
+    useState<TranslationDirection>("ru_en");
+  const [bannerPosition, setBannerPosition] = useState<BannerPosition>("top_right");
+  const [bannerScale, setBannerScale] = useState(0.25);
   const [phase, setPhase] = useState<Phase>("idle");
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState("");
   const [jobId, setJobId] = useState("");
   const busy = phase === "preparing" || phase === "uploading" || phase === "finalizing";
+  const bannerPreviewUrl = useMemo(
+    () => (banner ? URL.createObjectURL(banner.file) : null),
+    [banner],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (bannerPreviewUrl) URL.revokeObjectURL(bannerPreviewUrl);
+    };
+  }, [bannerPreviewUrl]);
 
   function chooseFile(file: File | null) {
     setError("");
@@ -93,6 +122,36 @@ export function UploadForm({ token }: { token: string }) {
     setSelected({ file, contentType });
   }
 
+  function chooseBanner(file: File | null) {
+    setError("");
+    if (!file) {
+      setBanner(null);
+      return;
+    }
+    if (file.size <= 0) {
+      setBanner(null);
+      setError("Выбранный баннер пуст.");
+      return;
+    }
+    if (file.size > MAX_BANNER_BYTES) {
+      setBanner(null);
+      setError("Баннер больше 5 МБ. Выберите изображение меньшего размера.");
+      return;
+    }
+    const contentType = resolveBannerContentType(file.name, file.type);
+    if (!isAllowedBannerContentType(contentType)) {
+      setBanner(null);
+      setError("Баннер должен быть изображением PNG или JPG.");
+      return;
+    }
+    setBanner({ file, contentType });
+  }
+
+  function changeSubtitleMode(mode: SubtitleMode) {
+    setSubtitleMode(mode);
+    if (mode !== "original") setSubtitleStyle("standard");
+  }
+
   async function submit() {
     if (!selected || busy) return;
     setError("");
@@ -107,15 +166,37 @@ export function UploadForm({ token }: { token: string }) {
           fileName: selected.file.name,
           size: selected.file.size,
           contentType: selected.contentType,
+          renderOptions: {
+            subtitleMode,
+            subtitleStyle,
+            translationDirection:
+              subtitleMode === "translated" ? translationDirection : null,
+            bannerPosition,
+            bannerScale,
+          },
+          banner: banner
+            ? {
+                fileName: banner.file.name,
+                size: banner.file.size,
+                contentType: banner.contentType,
+              }
+            : null,
         }),
       });
       const prepared = await responseJson(prepareResponse);
       if (typeof prepared.uploadUrl !== "string") {
         throw new Error("Сервер не выдал адрес загрузки. Попробуйте ещё раз.");
       }
+      if (banner && typeof prepared.bannerUploadUrl !== "string") {
+        throw new Error("Сервер не выдал адрес загрузки баннера. Попробуйте ещё раз.");
+      }
 
       setPhase("uploading");
       await putFile(prepared.uploadUrl, selected, setProgress);
+      if (banner && typeof prepared.bannerUploadUrl === "string") {
+        await putFile(prepared.bannerUploadUrl, banner, () => undefined);
+      }
+      setProgress(100);
 
       setPhase("finalizing");
       const completeResponse = await fetch(`/api/uploads/${token}/complete`, {
@@ -145,7 +226,7 @@ export function UploadForm({ token }: { token: string }) {
           <path d="m5 12 4 4L19 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
         <h2>Видео загружено</h2>
-        <p>Задача создана и стоит в очереди. Монтаж появится на следующем этапе.</p>
+        <p>Задача создана и стоит в очереди. Готовый ролик появится в Telegram после обработки.</p>
         <div className="job-number">
           <span>Номер задачи</span>
           <code>{jobId}</code>
@@ -181,10 +262,133 @@ export function UploadForm({ token }: { token: string }) {
         </div>
       )}
 
+      <fieldset className="render-settings" disabled={busy}>
+        <legend>Субтитры</legend>
+        <div className="setting-grid">
+          <label className="setting-field">
+            <span>Текст на ролике</span>
+            <select
+              value={subtitleMode}
+              onChange={(event) => changeSubtitleMode(event.target.value as SubtitleMode)}
+            >
+              <option value="off">Без субтитров</option>
+              <option value="original">На языке видео</option>
+              <option value="translated">Переведённые</option>
+            </select>
+          </label>
+
+          {subtitleMode === "translated" && (
+            <label className="setting-field">
+              <span>Направление перевода</span>
+              <select
+                value={translationDirection}
+                onChange={(event) =>
+                  setTranslationDirection(event.target.value as TranslationDirection)
+                }
+              >
+                <option value="ru_en">Русский → английский</option>
+                <option value="en_ru">Английский → русский</option>
+              </select>
+            </label>
+          )}
+        </div>
+
+        {subtitleMode === "original" && (
+          <div className="style-options" role="group" aria-label="Стиль субтитров">
+            <label>
+              <input
+                type="radio"
+                name="subtitle-style"
+                value="standard"
+                checked={subtitleStyle === "standard"}
+                onChange={() => setSubtitleStyle("standard")}
+              />
+              Обычные фразы
+            </label>
+            <label>
+              <input
+                type="radio"
+                name="subtitle-style"
+                value="karaoke"
+                checked={subtitleStyle === "karaoke"}
+                onChange={() => setSubtitleStyle("karaoke")}
+              />
+              Караоке по словам
+            </label>
+          </div>
+        )}
+        <p className="setting-help">
+          {subtitleMode === "translated"
+            ? "Перевод выполняется локально на сервере. Язык видео должен совпадать с выбранным направлением. Для перевода используются обычные фразовые субтитры."
+            : "Речь распознаётся локально, без платных API. Если речь не найдена, бот сообщит об ошибке, а не подставит другой текст."}
+        </p>
+      </fieldset>
+
+      <fieldset className="render-settings" disabled={busy}>
+        <legend>Баннер</legend>
+        <label className="banner-picker">
+          <span>{banner ? "Заменить изображение" : "Добавить PNG или JPG"}</span>
+          <small>До 5 МБ · будет наложен на этот ролик</small>
+          <input
+            type="file"
+            accept=".png,.jpg,.jpeg,image/png,image/jpeg"
+            onClick={(event) => {
+              event.currentTarget.value = "";
+            }}
+            onChange={(event) => chooseBanner(event.currentTarget.files?.[0] ?? null)}
+          />
+        </label>
+
+        {banner && bannerPreviewUrl && (
+          <div className="banner-details">
+            <div className="banner-preview">
+              <img src={bannerPreviewUrl} alt="Предпросмотр выбранного баннера" />
+            </div>
+            <div className="selected-file">
+              <span className="file-name">{banner.file.name}</span>
+              <span>{formatBytes(banner.file.size)}</span>
+            </div>
+            <div className="setting-grid">
+              <label className="setting-field">
+                <span>Положение</span>
+                <select
+                  value={bannerPosition}
+                  onChange={(event) =>
+                    setBannerPosition(event.target.value as BannerPosition)
+                  }
+                >
+                  <option value="top_left">Сверху слева</option>
+                  <option value="top_center">Сверху по центру</option>
+                  <option value="top_right">Сверху справа</option>
+                  <option value="bottom_left">Снизу слева</option>
+                  <option value="bottom_center">Снизу по центру</option>
+                  <option value="bottom_right">Снизу справа</option>
+                </select>
+              </label>
+              <label className="setting-field">
+                <span>Ширина: {Math.round(bannerScale * 100)}% кадра</span>
+                <input
+                  className="scale-input"
+                  type="range"
+                  min="10"
+                  max="50"
+                  step="5"
+                  value={Math.round(bannerScale * 100)}
+                  onChange={(event) => setBannerScale(Number(event.target.value) / 100)}
+                />
+              </label>
+            </div>
+            <button className="text-button" type="button" onClick={() => setBanner(null)}>
+              Убрать баннер
+            </button>
+          </div>
+        )}
+      </fieldset>
+
       {(phase === "uploading" || phase === "finalizing") && (
         <div className="upload-progress" aria-live="polite">
           <div>
-            <span>{phase === "finalizing" ? "Создаём задачу…" : "Загружаем видео…"}</span>
+            <span>{phase === "finalizing" ? "Создаём задачу…" : "Загружаем файлы…"}</span>
             <span>{phase === "finalizing" ? "100%" : `${progress}%`}</span>
           </div>
           <progress max="100" value={phase === "finalizing" ? 100 : progress}>
@@ -207,7 +411,9 @@ export function UploadForm({ token }: { token: string }) {
             ? "Пожалуйста, подождите…"
             : "Загрузить и создать задачу"}
       </button>
-      <p className="upload-note">Загруженный файл автоматически удаляется через 1 день.</p>
+      <p className="upload-note">
+        Настройки применяются к этому ролику. Загруженные файлы автоматически удаляются через 1 день.
+      </p>
     </div>
   );
 }

@@ -22,12 +22,21 @@ def main() -> None:
         condition_on_previous_text=False,
         vad_filter=True,
         vad_parameters={"min_silence_duration_ms": 700},
+        word_timestamps=True,
     )
     result = {
         "language": info.language,
         "languageProbability": info.language_probability,
         "segments": [
-            {"start": segment.start, "end": segment.end, "text": segment.text.strip()}
+            {
+                "start": segment.start,
+                "end": segment.end,
+                "text": segment.text.strip(),
+                "words": [
+                    {"start": word.start, "end": word.end, "word": word.word}
+                    for word in (segment.words or [])
+                ],
+            }
             for segment in segments
             if segment.text.strip()
         ],

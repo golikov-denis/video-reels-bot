@@ -11,7 +11,22 @@ import { workerSignatureMatches } from "./worker-auth";
 
 const MAX_CALLBACK_BYTES = 16_384;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const FAILURE_CODES = new Set(["invalid_video", "too_long", "processing_failed"]);
+const FAILURE_CODES = new Set([
+  "invalid_video",
+  "too_long",
+  "processing_failed",
+  "subtitles_unavailable",
+  "translation_language_mismatch",
+  "translation_failed",
+]);
+
+export type WorkerFailureCode =
+  | "invalid_video"
+  | "too_long"
+  | "processing_failed"
+  | "subtitles_unavailable"
+  | "translation_language_mismatch"
+  | "translation_failed";
 
 export type WorkerCallbackPayload =
   | {
@@ -36,7 +51,7 @@ export type WorkerCallbackPayload =
   | {
       jobId: string;
       status: "failed";
-      errorCode: "invalid_video" | "too_long" | "processing_failed";
+      errorCode: WorkerFailureCode;
     };
 
 export class WorkerCallbackError extends Error {
@@ -67,7 +82,7 @@ export function parseWorkerCallbackPayload(value: unknown): WorkerCallbackPayloa
     return {
       jobId: value.jobId,
       status: "failed",
-      errorCode: value.errorCode as "invalid_video" | "too_long" | "processing_failed",
+      errorCode: value.errorCode as WorkerFailureCode,
     };
   }
 
@@ -264,7 +279,12 @@ export async function processWorkerCallback(
     const downloadUrl = await createDownloadUrl(payload.resultObjectKey);
     await sendResultVideo(config, notification.chatId, downloadUrl, fetchImpl);
   } else {
-    await sendProcessingFailedMessage(config, notification.chatId, fetchImpl);
+    await sendProcessingFailedMessage(
+      config,
+      notification.chatId,
+      fetchImpl,
+      payload.errorCode,
+    );
   }
 
   await withDatabase(async (database) => {

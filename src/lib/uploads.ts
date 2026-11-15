@@ -6,9 +6,11 @@ import { createUploadUrl, inspectUpload } from "./storage";
 import {
   hashUploadToken,
   isUploadToken,
+  parseRenderConfiguration,
   parseUploadMetadata,
   requireUploadToken,
   UploadError,
+  type BannerMetadata,
   type UploadMetadata,
 } from "./upload-validation";
 
@@ -50,6 +52,18 @@ function assertUploadMetadata(session: UploadSession): UploadMetadata {
   };
 }
 
+function bannerMetadata(session: UploadSession): BannerMetadata | null {
+  if (!session.bannerObjectKey) return null;
+  if (session.bannerFileSize === null || !session.bannerContentType) {
+    throw new UploadError(409, "Данные баннера не сохранены. Подготовьте загрузку ещё раз.");
+  }
+  return {
+    fileName: "banner",
+    size: session.bannerFileSize,
+    contentType: session.bannerContentType as "image/png" | "image/jpeg",
+  };
+}
+
 export async function getUploadSessionState(
   token: string,
 ): Promise<UploadSessionState> {
@@ -84,9 +98,10 @@ export async function getUploadSessionState(
 export async function prepareUpload(
   token: string,
   input: unknown,
-): Promise<{ uploadUrl: string; expiresIn: number }> {
+): Promise<{ uploadUrl: string; bannerUploadUrl: string | null; expiresIn: number }> {
   requireUploadToken(token);
   const metadata = parseUploadMetadata(input);
+  const configuration = parseRenderConfiguration(input);
 
   const prepared = await withDatabase((database) =>
     database.transaction(async (transaction) => {
@@ -98,6 +113,9 @@ export async function prepareUpload(
         .for("update");
       const session = assertActiveSession(row);
       const objectKey = `uploads/${session.id}/${randomUUID()}`;
+      const bannerObjectKey = configuration.banner
+        ? `banners/${session.id}/${randomUUID()}`
+        : null;
 
       await transaction
         .update(uploadSessions)
@@ -107,16 +125,27 @@ export async function prepareUpload(
           originalFileName: metadata.fileName,
           fileSize: metadata.size,
           contentType: metadata.contentType,
+          subtitleMode: configuration.options.subtitleMode,
+          subtitleStyle: configuration.options.subtitleStyle,
+          translationDirection: configuration.options.translationDirection,
+          bannerPosition: configuration.options.bannerPosition,
+          bannerScale: configuration.options.bannerScale,
+          bannerObjectKey,
+          bannerFileSize: configuration.banner?.size ?? null,
+          bannerContentType: configuration.banner?.contentType ?? null,
           updatedAt: new Date(),
         })
         .where(eq(uploadSessions.id, session.id));
 
-      return { objectKey };
+      return { objectKey, bannerObjectKey };
     }),
   );
 
   const uploadUrl = await createUploadUrl(prepared.objectKey, metadata.contentType);
-  return { uploadUrl, expiresIn: 600 };
+  const bannerUploadUrl = prepared.bannerObjectKey && configuration.banner
+    ? await createUploadUrl(prepared.bannerObjectKey, configuration.banner.contentType)
+    : null;
+  return { uploadUrl, bannerUploadUrl, expiresIn: 600 };
 }
 
 function isMissingObjectError(error: unknown): boolean {
@@ -130,6 +159,15 @@ function isMissingObjectError(error: unknown): boolean {
     candidate.name === "NotFound" ||
     candidate.$metadata?.httpStatusCode === 404
   );
+}
+
+async function inspectRequiredUpload(objectKey: string, publicMessage: string) {
+  try {
+    return await inspectUpload(objectKey);
+  } catch (error) {
+    if (isMissingObjectError(error)) throw new UploadError(409, publicMessage);
+    throw error;
+  }
 }
 
 export async function completeUpload(token: string): Promise<{
@@ -173,21 +211,29 @@ export async function completeUpload(token: string): Promise<{
     return { jobId: initial.jobId, chatId: initial.chatId, created: false };
   }
 
-  let storedFile;
-  try {
-    storedFile = await inspectUpload(initial.session.objectKey ?? "");
-  } catch (error) {
-    if (isMissingObjectError(error)) {
-      throw new UploadError(409, "Файл ещё не загружен. Повторите загрузку.");
-    }
-    throw error;
-  }
-
+  const storedFile = await inspectRequiredUpload(
+    initial.session.objectKey ?? "",
+    "Файл ещё не загружен. Повторите загрузку.",
+  );
   if (storedFile.size !== initial.metadata.size) {
     throw new UploadError(400, "Размер загруженного файла не совпадает с выбранным.");
   }
   if (storedFile.contentType !== initial.metadata.contentType) {
     throw new UploadError(400, "Тип загруженного файла не совпадает с выбранным.");
+  }
+
+  const expectedBanner = bannerMetadata(initial.session);
+  if (initial.session.bannerObjectKey && expectedBanner) {
+    const storedBanner = await inspectRequiredUpload(
+      initial.session.bannerObjectKey,
+      "Баннер ещё не загружен. Повторите загрузку.",
+    );
+    if (storedBanner.size !== expectedBanner.size) {
+      throw new UploadError(400, "Размер загруженного баннера не совпадает с выбранным.");
+    }
+    if (storedBanner.contentType !== expectedBanner.contentType) {
+      throw new UploadError(400, "Тип загруженного баннера не совпадает с выбранным.");
+    }
   }
 
   return withDatabase((database) =>
@@ -213,7 +259,8 @@ export async function completeUpload(token: string): Promise<{
       if (
         session.objectKey !== initial.session.objectKey ||
         session.fileSize !== initial.metadata.size ||
-        session.contentType !== initial.metadata.contentType
+        session.contentType !== initial.metadata.contentType ||
+        session.bannerObjectKey !== initial.session.bannerObjectKey
       ) {
         throw new UploadError(409, "Загрузка изменилась. Начните ещё раз.");
       }
@@ -227,6 +274,12 @@ export async function completeUpload(token: string): Promise<{
           originalFileName: session.originalFileName ?? initial.metadata.fileName,
           sourceSize: session.fileSize ?? initial.metadata.size,
           sourceContentType: session.contentType ?? initial.metadata.contentType,
+          subtitleMode: session.subtitleMode,
+          subtitleStyle: session.subtitleStyle,
+          translationDirection: session.translationDirection,
+          bannerPosition: session.bannerPosition,
+          bannerScale: session.bannerScale,
+          bannerObjectKey: session.bannerObjectKey,
           status: "queued",
         })
         .returning({ id: jobs.id });

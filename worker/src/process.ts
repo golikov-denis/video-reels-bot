@@ -1,6 +1,7 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { parseRenderOptions } from "../../src/lib/render-options";
 import { createSourceUrl, uploadResult } from "../../src/lib/storage";
 import { deliverCallback } from "./callback";
 import {
@@ -13,6 +14,8 @@ import {
 } from "./jobs";
 import { MediaError, renderVerticalVideo } from "./media";
 import { selectSourceFragment } from "./transcription";
+import { createSubtitleFileContent, transcriptForSelection } from "./subtitles";
+import { argosTranslationProvider } from "./translation";
 
 const scheduledJobs = new Set<string>();
 const pendingJobs: string[] = [];
@@ -37,12 +40,64 @@ function startHeartbeat(claim: ClaimedJob): () => void {
 async function renderClaim(claim: ClaimedJob) {
   const directory = await mkdtemp(join(tmpdir(), "video-reels-"));
   try {
+    const options = parseRenderOptions({
+      subtitleMode: claim.job.subtitleMode,
+      subtitleStyle: claim.job.subtitleStyle,
+      translationDirection: claim.job.translationDirection,
+      bannerPosition: claim.job.bannerPosition,
+      bannerScale: claim.job.bannerScale,
+    });
     const sourceUrl = await createSourceUrl(claim.job.sourceObjectKey);
     const outputPath = join(directory, "reel.mp4");
-    const { sourceDurationSeconds, selection } =
-      await selectSourceFragment(sourceUrl);
+    const { sourceDurationSeconds, selection, transcription } =
+      await selectSourceFragment(sourceUrl, undefined, {
+        requireTranscription: options.subtitleMode !== "off",
+      });
+
+    let subtitlesPath: string | undefined;
+    if (options.subtitleMode !== "off") {
+      if (!transcription) throw new MediaError("subtitles_unavailable", false);
+      const selectedTranscript = transcriptForSelection(transcription, selection);
+      if (selectedTranscript.segments.length === 0) {
+        throw new MediaError("subtitles_unavailable", false);
+      }
+      if (options.subtitleMode === "translated") {
+        const sourceLanguage = options.translationDirection?.split("_")[0];
+        if (selectedTranscript.language?.toLowerCase() !== sourceLanguage) {
+          throw new MediaError("translation_language_mismatch", false);
+        }
+      }
+      try {
+        const ass = await createSubtitleFileContent(
+          selectedTranscript,
+          options,
+          argosTranslationProvider,
+        );
+        subtitlesPath = join(directory, "subtitles.ass");
+        await writeFile(subtitlesPath, ass, "utf8");
+      } catch (error) {
+        if (error instanceof MediaError) throw error;
+        throw new MediaError(
+          options.subtitleMode === "translated"
+            ? "translation_failed"
+            : "subtitles_unavailable",
+          false,
+        );
+      }
+    }
+
     const rendered = await renderVerticalVideo(sourceUrl, outputPath, {
       selection,
+      ...(subtitlesPath !== undefined ? { subtitlesPath } : {}),
+      ...(claim.job.bannerObjectKey
+        ? {
+            banner: {
+              source: await createSourceUrl(claim.job.bannerObjectKey),
+              position: options.bannerPosition,
+              scale: options.bannerScale,
+            },
+          }
+        : {}),
     });
     const resultObjectKey = `results/${claim.job.id}/reel.mp4`;
     const resultSize = await uploadResult(resultObjectKey, outputPath);

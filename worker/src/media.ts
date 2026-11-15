@@ -1,20 +1,22 @@
 import { spawn } from "node:child_process";
 import { stat } from "node:fs/promises";
+import type { BannerPosition } from "../../src/lib/render-options";
 import type { FragmentSelection } from "./selection";
 
 export const MAX_SOURCE_DURATION_SECONDS = 3600;
 export const MAX_RESULT_DURATION_SECONDS = 30;
 
-const VERTICAL_FILTER = [
-  "[0:v:0]split=2[bg][fg]",
-  "[bg]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,gblur=sigma=30[background]",
-  "[fg]scale=720:1280:force_original_aspect_ratio=decrease[foreground]",
-  "[background][foreground]overlay=(W-w)/2:(H-h)/2:shortest=1,fps=30,setsar=1,format=yuv420p[v]",
-].join(";");
+export type MediaErrorCode =
+  | "invalid_video"
+  | "too_long"
+  | "processing_failed"
+  | "subtitles_unavailable"
+  | "translation_language_mismatch"
+  | "translation_failed";
 
 export class MediaError extends Error {
   constructor(
-    public readonly code: "invalid_video" | "too_long" | "processing_failed",
+    public readonly code: MediaErrorCode,
     public readonly retryable: boolean,
   ) {
     super(code);
@@ -139,6 +141,57 @@ export async function inspectResult(
   return duration;
 }
 
+function escapeAssPath(path: string): string {
+  return path
+    .replace(/\\/gu, "/")
+    .replace(/:/gu, "\\:")
+    .replace(/'/gu, "\\'")
+    .replace(/,/gu, "\\,")
+    .replace(/\[/gu, "\\[")
+    .replace(/\]/gu, "\\]");
+}
+
+function bannerOverlayPosition(position: BannerPosition): { x: string; y: string } {
+  const x = position.endsWith("_left")
+    ? "48"
+    : position.endsWith("_right")
+      ? "W-w-48"
+      : "(W-w)/2";
+  const y = position.startsWith("top_") ? "56" : "H-h-210";
+  return { x, y };
+}
+
+export function buildVerticalFilter(options: {
+  subtitlesPath?: string;
+  banner?: { position: BannerPosition; scale: number };
+}): string {
+  const filters = [
+    "[0:v:0]split=2[bg][fg]",
+    "[bg]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,gblur=sigma=30[background]",
+    "[fg]scale=720:1280:force_original_aspect_ratio=decrease[foreground]",
+    "[background][foreground]overlay=(W-w)/2:(H-h)/2:shortest=1[base]",
+  ];
+  let current = "base";
+
+  if (options.banner) {
+    const width = Math.round(720 * options.banner.scale / 2) * 2;
+    const position = bannerOverlayPosition(options.banner.position);
+    filters.push(`[1:v:0]scale=${width}:-1[banner]`);
+    filters.push(
+      `[${current}][banner]overlay=${position.x}:${position.y}:shortest=1[with_banner]`,
+    );
+    current = "with_banner";
+  }
+  if (options.subtitlesPath) {
+    filters.push(
+      `[${current}]subtitles=filename='${escapeAssPath(options.subtitlesPath)}'[with_subtitles]`,
+    );
+    current = "with_subtitles";
+  }
+  filters.push(`[${current}]fps=30,setsar=1,format=yuv420p[v]`);
+  return filters.join(";");
+}
+
 export async function renderVerticalVideo(
   source: string,
   outputPath: string,
@@ -146,6 +199,8 @@ export async function renderVerticalVideo(
     ffmpegPath?: string;
     ffprobePath?: string;
     selection?: FragmentSelection;
+    subtitlesPath?: string;
+    banner?: { source: string; position: BannerPosition; scale: number };
   } = {},
 ): Promise<{ size: number; durationSeconds: number }> {
   const ffmpegPath = options.ffmpegPath ?? process.env.FFMPEG_PATH ?? "ffmpeg";
@@ -161,7 +216,11 @@ export async function renderVerticalVideo(
     startSeconds < 0 ||
     endSeconds > sourceDuration + 0.25 ||
     clipDuration <= 0 ||
-    clipDuration > MAX_RESULT_DURATION_SECONDS
+    clipDuration > MAX_RESULT_DURATION_SECONDS ||
+    (options.banner !== undefined &&
+      (!Number.isFinite(options.banner.scale) ||
+        options.banner.scale < 0.1 ||
+        options.banner.scale > 0.5))
   ) {
     throw new MediaError("processing_failed", false);
   }
@@ -170,6 +229,7 @@ export async function renderVerticalVideo(
     ? ["-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_delay_max", "5"]
     : [];
   const seekOptions = startSeconds > 0 ? ["-ss", startSeconds.toFixed(3)] : [];
+  const bannerInput = options.banner ? ["-loop", "1", "-i", options.banner.source] : [];
 
   await runCommand(
     ffmpegPath,
@@ -182,8 +242,21 @@ export async function renderVerticalVideo(
       ...seekOptions,
       "-i",
       source,
+      ...bannerInput,
       "-filter_complex",
-      VERTICAL_FILTER,
+      buildVerticalFilter({
+        ...(options.subtitlesPath !== undefined
+          ? { subtitlesPath: options.subtitlesPath }
+          : {}),
+        ...(options.banner
+          ? {
+              banner: {
+                position: options.banner.position,
+                scale: options.banner.scale,
+              },
+            }
+          : {}),
+      }),
       "-map",
       "[v]",
       "-map",

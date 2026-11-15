@@ -1,10 +1,17 @@
 export const MIN_FRAGMENT_SECONDS = 6;
 export const MAX_FRAGMENT_SECONDS = 30;
 
+export type TranscriptWord = {
+  start: number;
+  end: number;
+  word: string;
+};
+
 export type TranscriptSegment = {
   start: number;
   end: number;
   text: string;
+  words?: TranscriptWord[];
 };
 
 export type SelectionStrategy =

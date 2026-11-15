@@ -5,35 +5,41 @@ import ffmpegStatic from "ffmpeg-static";
 import ffprobeStatic from "ffprobe-static";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { inspectResult, renderVerticalVideo } from "../src/media";
+import { generateAss } from "../src/subtitles";
 
 const ffmpegPath = ffmpegStatic ?? undefined;
 const ffprobePath = ffprobeStatic.path;
 let directory: string;
 
-function generate(source: string, audio: boolean): Promise<void> {
+function runFfmpeg(args: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
-    const args = [
-      "-hide_banner",
-      "-loglevel",
-      "error",
-      "-f",
-      "lavfi",
-      "-i",
-      "testsrc=size=320x240:rate=15",
-      ...(audio ? ["-f", "lavfi", "-i", "sine=frequency=1000:sample_rate=44100"] : []),
-      "-t",
-      "1",
-      "-c:v",
-      "libx264",
-      "-pix_fmt",
-      "yuv420p",
-      ...(audio ? ["-c:a", "aac"] : []),
-      source,
-    ];
     const child = spawn(ffmpegPath ?? "ffmpeg", args, { shell: false });
     child.on("error", reject);
-    child.on("close", (code) => (code === 0 ? resolve() : reject(new Error("Fixture failed"))));
+    child.on("close", (code) =>
+      code === 0 ? resolve() : reject(new Error("Fixture failed")),
+    );
   });
+}
+
+function generate(source: string, audio: boolean): Promise<void> {
+  return runFfmpeg([
+    "-hide_banner",
+    "-loglevel",
+    "error",
+    "-f",
+    "lavfi",
+    "-i",
+    "testsrc=size=320x240:rate=15",
+    ...(audio ? ["-f", "lavfi", "-i", "sine=frequency=1000:sample_rate=44100"] : []),
+    "-t",
+    "1",
+    "-c:v",
+    "libx264",
+    "-pix_fmt",
+    "yuv420p",
+    ...(audio ? ["-c:a", "aac"] : []),
+    source,
+  ]);
 }
 
 beforeAll(async () => {
@@ -61,6 +67,50 @@ describe("реальный FFmpeg", () => {
     const output = join(directory, "silent-result.mp4");
     await generate(source, false);
     const result = await renderVerticalVideo(source, output, { ffmpegPath, ffprobePath });
+    expect(result.size).toBeGreaterThan(0);
+    expect(await inspectResult(output, ffprobePath)).toBeLessThanOrEqual(1.1);
+  }, 30_000);
+
+  it("встраивает русские ASS-субтитры и PNG-баннер", async () => {
+    const source = join(directory, "styled.mp4");
+    const banner = join(directory, "banner.png");
+    const subtitles = join(directory, "subtitles.ass");
+    const output = join(directory, "styled-result.mp4");
+    await generate(source, true);
+    await runFfmpeg([
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-f",
+      "lavfi",
+      "-i",
+      "color=c=red:size=120x60",
+      "-frames:v",
+      "1",
+      banner,
+    ]);
+    await writeFile(
+      subtitles,
+      generateAss(
+        [
+          {
+            start: 0,
+            end: 1,
+            lines: ["Привет, мир!"],
+            words: [[{ start: 0, end: 1, word: "Привет, мир!" }]],
+          },
+        ],
+        "karaoke",
+      ),
+      "utf8",
+    );
+
+    const result = await renderVerticalVideo(source, output, {
+      ffmpegPath,
+      ffprobePath,
+      subtitlesPath: subtitles,
+      banner: { source: banner, position: "top_right", scale: 0.25 },
+    });
     expect(result.size).toBeGreaterThan(0);
     expect(await inspectResult(output, ffprobePath)).toBeLessThanOrEqual(1.1);
   }, 30_000);

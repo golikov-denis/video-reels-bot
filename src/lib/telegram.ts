@@ -106,7 +106,7 @@ export async function sendStartMessage(
   const text =
     "Привет! Загрузите длинное видео по защищённой ссылке:\n\n" +
     `${uploadUrl}\n\n` +
-    "Ссылка действует 30 минут. После загрузки я создам вертикальный ролик из первых 30 секунд видео.";
+    "Ссылка действует 30 минут. На странице можно включить субтитры, перевод и баннер. После обработки я пришлю вертикальный ролик длительностью до 30 секунд.";
   await sendMessage(config, chatId, text, fetchImpl);
 }
 
@@ -155,11 +155,21 @@ export async function sendProcessingFailedMessage(
   config: TelegramConfig,
   chatId: bigint,
   fetchImpl: typeof fetch = fetch,
+  errorCode = "processing_failed",
 ): Promise<void> {
+  const messages: Record<string, string> = {
+    subtitles_unavailable:
+      "Не удалось найти и распознать речь в выбранном фрагменте. Попробуйте видео с чёткой речью или отключите субтитры через новую ссылку /start.",
+    translation_language_mismatch:
+      "Язык видео не совпадает с выбранным направлением перевода. Получите новую ссылку через /start и выберите правильное направление.",
+    translation_failed:
+      "Не удалось перевести субтитры. Попробуйте другое видео или выберите субтитры на языке оригинала через новую ссылку /start.",
+  };
   await sendMessage(
     config,
     chatId.toString(),
-    "Не удалось обработать это видео. Проверьте, что файл открывается, его длительность не больше 60 минут, и попробуйте загрузить другое видео через /start.",
+    messages[errorCode] ??
+      "Не удалось обработать это видео. Проверьте, что файл открывается, его длительность не больше 60 минут, и попробуйте загрузить другое видео через /start.",
     fetchImpl,
   );
 }

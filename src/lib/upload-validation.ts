@@ -1,5 +1,12 @@
 import { createHash, randomBytes } from "node:crypto";
 import {
+  isAllowedBannerContentType,
+  MAX_BANNER_BYTES,
+  parseRenderOptions,
+  resolveBannerContentType,
+  type RenderOptions,
+} from "./render-options";
+import {
   isAllowedContentType,
   MAX_FILE_BYTES,
   resolveContentType,
@@ -21,6 +28,15 @@ export type UploadMetadata = {
   contentType: string;
 };
 
+export type BannerMetadata = UploadMetadata & {
+  contentType: "image/png" | "image/jpeg";
+};
+
+export type RenderConfiguration = {
+  options: RenderOptions;
+  banner: BannerMetadata | null;
+};
+
 export function isUploadToken(token: string): boolean {
   return /^[A-Za-z0-9_-]{43}$/.test(token);
 }
@@ -40,6 +56,12 @@ export function requireUploadToken(token: string): string {
   return token;
 }
 
+function cleanFileName(value: string): string {
+  return (value.split(/[\\/]/).pop() ?? "")
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .trim();
+}
+
 export function parseUploadMetadata(value: unknown): UploadMetadata {
   if (typeof value !== "object" || value === null) {
     throw new UploadError(400, "Проверьте данные файла и повторите попытку.");
@@ -54,10 +76,7 @@ export function parseUploadMetadata(value: unknown): UploadMetadata {
     throw new UploadError(400, "Проверьте данные файла и повторите попытку.");
   }
 
-  const fileName = (input.fileName.split(/[\\/]/).pop() ?? "")
-    .replace(/[\u0000-\u001f\u007f]/g, "")
-    .trim();
-
+  const fileName = cleanFileName(input.fileName);
   if (!fileName || fileName.length > 255 || !Number.isSafeInteger(input.size)) {
     throw new UploadError(400, "Некорректное имя или размер файла.");
   }
@@ -74,4 +93,55 @@ export function parseUploadMetadata(value: unknown): UploadMetadata {
   }
 
   return { fileName, size: input.size, contentType };
+}
+
+export function parseBannerMetadata(value: unknown): BannerMetadata {
+  if (typeof value !== "object" || value === null) {
+    throw new UploadError(400, "Проверьте данные баннера.");
+  }
+  const input = value as Record<string, unknown>;
+  if (
+    typeof input.fileName !== "string" ||
+    typeof input.size !== "number" ||
+    typeof input.contentType !== "string"
+  ) {
+    throw new UploadError(400, "Проверьте данные баннера.");
+  }
+  const fileName = cleanFileName(input.fileName);
+  if (!fileName || fileName.length > 255 || !Number.isSafeInteger(input.size)) {
+    throw new UploadError(400, "Некорректное имя или размер баннера.");
+  }
+  if (input.size <= 0) throw new UploadError(400, "Выбранный баннер пуст.");
+  if (input.size > MAX_BANNER_BYTES) {
+    throw new UploadError(413, "Баннер больше 5 МБ. Выберите изображение меньшего размера.");
+  }
+  const contentType = resolveBannerContentType(fileName, input.contentType);
+  if (!isAllowedBannerContentType(contentType)) {
+    throw new UploadError(415, "Баннер должен быть изображением PNG или JPG.");
+  }
+  return {
+    fileName,
+    size: input.size,
+    contentType: contentType as "image/png" | "image/jpeg",
+  };
+}
+
+export function parseRenderConfiguration(value: unknown): RenderConfiguration {
+  if (typeof value !== "object" || value === null) {
+    throw new UploadError(400, "Проверьте настройки монтажа.");
+  }
+  const input = value as Record<string, unknown>;
+  let options: RenderOptions;
+  try {
+    options = parseRenderOptions(input.renderOptions);
+  } catch {
+    throw new UploadError(
+      400,
+      "Проверьте настройки субтитров и перевода. Для переведённых субтитров доступен обычный стиль.",
+    );
+  }
+  const banner = input.banner === undefined || input.banner === null
+    ? null
+    : parseBannerMetadata(input.banner);
+  return { options, banner };
 }
