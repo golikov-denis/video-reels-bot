@@ -3,8 +3,10 @@ FROM node:24-bookworm-slim
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ffmpeg python3 python3-pip fonts-dejavu-core curl \
   && rm -rf /var/lib/apt/lists/* \
+  && python3 -m pip install --no-cache-dir --break-system-packages torch --index-url https://download.pytorch.org/whl/cpu \
   && python3 -m pip install --no-cache-dir --break-system-packages faster-whisper==1.2.1 argostranslate==1.11.0 \
-  && python3 -c 'from huggingface_hub import snapshot_download; snapshot_download("Systran/faster-whisper-tiny", local_dir="/opt/whisper-model")'
+  && python3 -c 'from huggingface_hub import snapshot_download; snapshot_download("Systran/faster-whisper-tiny", local_dir="/opt/whisper-model")' \
+  && du -sh /usr/local/lib/python3.11/dist-packages /opt/whisper-model
 
 ENV ARGOS_PACKAGES_DIR=/opt/argos-models
 RUN mkdir -p /opt/argos-models \
