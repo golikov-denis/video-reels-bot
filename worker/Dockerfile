@@ -6,7 +6,7 @@ RUN apt-get update \
   && python3 -m pip install --no-cache-dir --upgrade --break-system-packages pip \
   && python3 -m pip install --no-cache-dir --break-system-packages --only-binary=:all: torch --index-url https://download.pytorch.org/whl/cpu \
   && python3 -m pip install --no-cache-dir --break-system-packages faster-whisper==1.2.1 argostranslate==1.11.0 \
-  && python3 -c 'from huggingface_hub import snapshot_download; snapshot_download("Systran/faster-whisper-tiny", local_dir="/opt/whisper-model")' \
+  && python3 -c 'from huggingface_hub import snapshot_download; snapshot_download("Systran/faster-whisper-base", local_dir="/opt/whisper-model")' \
   && du -sh /usr/local/lib/python3.11/dist-packages /opt/whisper-model
 
 ENV ARGOS_PACKAGES_DIR=/opt/argos-models
