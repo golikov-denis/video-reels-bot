@@ -1,16 +1,16 @@
 FROM node:24-bookworm-slim
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ffmpeg python3 python3-pip fonts-dejavu-core \
+  && apt-get install -y --no-install-recommends ffmpeg python3 python3-pip fonts-dejavu-core curl \
   && rm -rf /var/lib/apt/lists/* \
   && python3 -m pip install --no-cache-dir --break-system-packages faster-whisper==1.2.1 argostranslate==1.11.0 \
   && python3 -c 'from huggingface_hub import snapshot_download; snapshot_download("Systran/faster-whisper-tiny", local_dir="/opt/whisper-model")'
 
 ENV ARGOS_PACKAGES_DIR=/opt/argos-models
 RUN mkdir -p /opt/argos-models \
-  && python3 -c 'import urllib.request; urllib.request.urlretrieve("https://argos-net.com/v1/translate-en_ru-1_9.argosmodel", "/tmp/translate-en_ru.argosmodel")' \
+  && curl -fL --retry 3 -A "Mozilla/5.0" "https://argos-net.com/v1/translate-en_ru-1_9.argosmodel" -o /tmp/translate-en_ru.argosmodel \
   && python3 -c 'from argostranslate import package; package.install_from_path("/tmp/translate-en_ru.argosmodel")' \
-  && python3 -c 'import urllib.request; urllib.request.urlretrieve("https://argos-net.com/v1/translate-ru_en-1_9.argosmodel", "/tmp/translate-ru_en.argosmodel")' \
+  && curl -fL --retry 3 -A "Mozilla/5.0" "https://argos-net.com/v1/translate-ru_en-1_9.argosmodel" -o /tmp/translate-ru_en.argosmodel \
   && python3 -c 'from argostranslate import package; package.install_from_path("/tmp/translate-ru_en.argosmodel")' \
   && rm -f /tmp/translate-en_ru.argosmodel /tmp/translate-ru_en.argosmodel \
   && chmod -R a+r /opt/whisper-model /opt/argos-models
