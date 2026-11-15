@@ -64,6 +64,10 @@ async function renderClaim(claim: ClaimedJob) {
       if (options.subtitleMode === "translated") {
         const sourceLanguage = options.translationDirection?.split("_")[0];
         if (selectedTranscript.language?.toLowerCase() !== sourceLanguage) {
+          console.error("Translation language mismatch", {
+            expected: sourceLanguage,
+            detected: selectedTranscript.language,
+          });
           throw new MediaError("translation_language_mismatch", false);
         }
       }
