@@ -23,10 +23,9 @@ export interface TranscriptionProvider {
 function parseWords(value: unknown): TranscriptWord[] | undefined {
   if (value === undefined) return undefined;
   if (!Array.isArray(value)) throw new Error("Invalid transcription words");
-  return value.map((item) => {
-    if (typeof item !== "object" || item === null) {
-      throw new Error("Invalid transcription word");
-    }
+  const words: TranscriptWord[] = [];
+  for (const item of value) {
+    if (typeof item !== "object" || item === null) return undefined;
     const word = item as Record<string, unknown>;
     if (
       typeof word.start !== "number" ||
@@ -36,10 +35,11 @@ function parseWords(value: unknown): TranscriptWord[] | undefined {
       word.end <= word.start ||
       typeof word.word !== "string"
     ) {
-      throw new Error("Invalid transcription word");
+      return undefined;
     }
-    return { start: word.start, end: word.end, word: word.word };
-  });
+    words.push({ start: word.start, end: word.end, word: word.word });
+  }
+  return words;
 }
 
 export function parseTranscription(value: unknown): Transcription {
@@ -119,8 +119,9 @@ async function runWhisper(source: string): Promise<Transcription> {
       }
       try {
         resolve(parseTranscription(JSON.parse(stdout) as unknown));
-      } catch {
-        reject(new Error("Invalid transcription"));
+      } catch (error) {
+        const details = error instanceof Error ? error.message : "unknown error";
+        reject(new Error(`Invalid transcription: ${details}`));
       }
     });
   });

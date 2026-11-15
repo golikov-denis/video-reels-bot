@@ -39,6 +39,22 @@ describe("результат faster-whisper", () => {
     ]);
   });
 
+  it("сохраняет текст фразы при повреждённых таймингах слов", () => {
+    expect(
+      parseTranscription({
+        language: "ru",
+        segments: [
+          {
+            start: 1,
+            end: 2,
+            text: "Привет мир",
+            words: [{ start: null, end: null, word: "Привет" }],
+          },
+        ],
+      }).segments[0],
+    ).toEqual({ start: 1, end: 2, text: "Привет мир" });
+  });
+
   it("отклоняет повреждённые сегменты", () => {
     expect(() =>
       parseTranscription({
