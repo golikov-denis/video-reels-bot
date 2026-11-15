@@ -80,7 +80,8 @@ async function runArgos(
       settled = true;
       clearTimeout(timer);
       if (code !== 0) {
-        reject(new Error("Translation failed"));
+        const details = stderr.trim().slice(-4000);
+        reject(new Error(`Translation failed${details ? `: ${details}` : ""}`));
         return;
       }
       try {

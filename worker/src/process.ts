@@ -131,6 +131,7 @@ async function runJob(jobId: string): Promise<void> {
       await deliverCallback({ jobId, status: "completed", ...result });
       return;
     } catch (error) {
+      console.error("Job rendering failed", error);
       const mediaError = error instanceof MediaError ? error : null;
       const canRetry =
         claim.job.attempts < MAX_ATTEMPTS && mediaError?.retryable !== false;
