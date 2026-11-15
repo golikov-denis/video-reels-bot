@@ -12,6 +12,7 @@ import {
   type ClaimedJob,
 } from "./jobs";
 import { MediaError, renderVerticalVideo } from "./media";
+import { selectSourceFragment } from "./transcription";
 
 const scheduledJobs = new Set<string>();
 const pendingJobs: string[] = [];
@@ -38,7 +39,11 @@ async function renderClaim(claim: ClaimedJob) {
   try {
     const sourceUrl = await createSourceUrl(claim.job.sourceObjectKey);
     const outputPath = join(directory, "reel.mp4");
-    const rendered = await renderVerticalVideo(sourceUrl, outputPath);
+    const { sourceDurationSeconds, selection } =
+      await selectSourceFragment(sourceUrl);
+    const rendered = await renderVerticalVideo(sourceUrl, outputPath, {
+      selection,
+    });
     const resultObjectKey = `results/${claim.job.id}/reel.mp4`;
     const resultSize = await uploadResult(resultObjectKey, outputPath);
     return {
@@ -46,6 +51,12 @@ async function renderClaim(claim: ClaimedJob) {
       resultSize,
       resultContentType: "video/mp4" as const,
       durationSeconds: rendered.durationSeconds,
+      sourceDurationSeconds,
+      selectionStartSeconds: selection.startSeconds,
+      selectionEndSeconds: selection.endSeconds,
+      selectionConfidence: selection.confidence,
+      selectionStrategy: selection.strategy,
+      detectedLanguage: selection.detectedLanguage,
     };
   } finally {
     await rm(directory, { recursive: true, force: true });

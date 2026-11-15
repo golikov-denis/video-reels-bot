@@ -21,6 +21,17 @@ export type WorkerCallbackPayload =
       resultSize: number;
       resultContentType: "video/mp4";
       durationSeconds: number;
+      sourceDurationSeconds?: number | undefined;
+      selectionStartSeconds?: number | undefined;
+      selectionEndSeconds?: number | undefined;
+      selectionConfidence?: number | undefined;
+      selectionStrategy?:
+        | "full_source"
+        | "speech"
+        | "safe_speech"
+        | "no_speech"
+        | undefined;
+      detectedLanguage?: string | null | undefined;
     }
   | {
       jobId: string;
@@ -74,13 +85,73 @@ export function parseWorkerCallbackPayload(value: unknown): WorkerCallbackPayloa
     throw new WorkerCallbackError(400, "Invalid result payload");
   }
 
-  return {
+  const result = {
     jobId: value.jobId,
-    status: "completed",
+    status: "completed" as const,
     resultObjectKey: value.resultObjectKey,
     resultSize: value.resultSize as number,
-    resultContentType: "video/mp4",
+    resultContentType: "video/mp4" as const,
     durationSeconds: value.durationSeconds as number,
+  };
+  const selectionKeys = [
+    "sourceDurationSeconds",
+    "selectionStartSeconds",
+    "selectionEndSeconds",
+    "selectionConfidence",
+    "selectionStrategy",
+    "detectedLanguage",
+  ];
+  if (!selectionKeys.some((key) => value[key] !== undefined)) return result;
+
+  const numericFields = [
+    value.sourceDurationSeconds,
+    value.selectionStartSeconds,
+    value.selectionEndSeconds,
+    value.selectionConfidence,
+  ];
+  const languageIsValid =
+    value.detectedLanguage === undefined ||
+    value.detectedLanguage === null ||
+    (typeof value.detectedLanguage === "string" &&
+      value.detectedLanguage.trim().length > 0 &&
+      value.detectedLanguage.length <= 16);
+  if (
+    numericFields.some(
+      (field) => typeof field !== "number" || !Number.isFinite(field),
+    ) ||
+    (value.sourceDurationSeconds as number) <= 0 ||
+    (value.sourceDurationSeconds as number) > 3600 ||
+    (value.selectionStartSeconds as number) < 0 ||
+    (value.selectionEndSeconds as number) <=
+      (value.selectionStartSeconds as number) ||
+    (value.selectionEndSeconds as number) -
+      (value.selectionStartSeconds as number) >
+      30 ||
+    (value.selectionEndSeconds as number) >
+      (value.sourceDurationSeconds as number) + 0.25 ||
+    (value.selectionConfidence as number) < 0 ||
+    (value.selectionConfidence as number) > 1 ||
+    typeof value.selectionStrategy !== "string" ||
+    !["full_source", "speech", "safe_speech", "no_speech"].includes(
+      value.selectionStrategy,
+    ) ||
+    !languageIsValid
+  ) {
+    throw new WorkerCallbackError(400, "Invalid selection metadata");
+  }
+
+  return {
+    ...result,
+    sourceDurationSeconds: value.sourceDurationSeconds as number,
+    selectionStartSeconds: value.selectionStartSeconds as number,
+    selectionEndSeconds: value.selectionEndSeconds as number,
+    selectionConfidence: value.selectionConfidence as number,
+    selectionStrategy: value.selectionStrategy as
+      | "full_source"
+      | "speech"
+      | "safe_speech"
+      | "no_speech",
+    detectedLanguage: (value.detectedLanguage ?? null) as string | null,
   };
 }
 
@@ -152,6 +223,12 @@ export async function processWorkerCallback(
             resultSize: payload.resultSize,
             resultContentType: payload.resultContentType,
             durationSeconds: payload.durationSeconds,
+            sourceDurationSeconds: payload.sourceDurationSeconds ?? null,
+            selectionStartSeconds: payload.selectionStartSeconds ?? null,
+            selectionEndSeconds: payload.selectionEndSeconds ?? null,
+            selectionConfidence: payload.selectionConfidence ?? null,
+            selectionStrategy: payload.selectionStrategy ?? null,
+            detectedLanguage: payload.detectedLanguage ?? null,
             errorCode: null,
             leaseOwner: null,
             leaseExpiresAt: null,

@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { stat } from "node:fs/promises";
+import type { FragmentSelection } from "./selection";
 
 export const MAX_SOURCE_DURATION_SECONDS = 3600;
 export const MAX_RESULT_DURATION_SECONDS = 30;
@@ -93,10 +94,10 @@ async function probe(source: string, executable: string): Promise<ProbeData> {
   }
 }
 
-export async function inspectSource(
+export async function inspectSourceDetails(
   source: string,
   ffprobePath = process.env.FFPROBE_PATH || "ffprobe",
-): Promise<number> {
+): Promise<{ durationSeconds: number; hasAudio: boolean }> {
   const data = await probe(source, ffprobePath);
   const video = data.streams?.find((stream) => stream.codec_type === "video");
   const duration = Number(data.format?.duration ?? video?.duration);
@@ -106,7 +107,17 @@ export async function inspectSource(
   if (duration > MAX_SOURCE_DURATION_SECONDS) {
     throw new MediaError("too_long", false);
   }
-  return duration;
+  return {
+    durationSeconds: duration,
+    hasAudio: Boolean(data.streams?.some((stream) => stream.codec_type === "audio")),
+  };
+}
+
+export async function inspectSource(
+  source: string,
+  ffprobePath = process.env.FFPROBE_PATH || "ffprobe",
+): Promise<number> {
+  return (await inspectSourceDetails(source, ffprobePath)).durationSeconds;
 }
 
 export async function inspectResult(
@@ -131,15 +142,34 @@ export async function inspectResult(
 export async function renderVerticalVideo(
   source: string,
   outputPath: string,
-  options: { ffmpegPath?: string; ffprobePath?: string } = {},
+  options: {
+    ffmpegPath?: string;
+    ffprobePath?: string;
+    selection?: FragmentSelection;
+  } = {},
 ): Promise<{ size: number; durationSeconds: number }> {
   const ffmpegPath = options.ffmpegPath ?? process.env.FFMPEG_PATH ?? "ffmpeg";
   const ffprobePath = options.ffprobePath ?? process.env.FFPROBE_PATH ?? "ffprobe";
-  await inspectSource(source, ffprobePath);
+  const sourceDuration = await inspectSource(source, ffprobePath);
+  const startSeconds = options.selection?.startSeconds ?? 0;
+  const endSeconds =
+    options.selection?.endSeconds ?? Math.min(sourceDuration, MAX_RESULT_DURATION_SECONDS);
+  const clipDuration = endSeconds - startSeconds;
+  if (
+    !Number.isFinite(startSeconds) ||
+    !Number.isFinite(endSeconds) ||
+    startSeconds < 0 ||
+    endSeconds > sourceDuration + 0.25 ||
+    clipDuration <= 0 ||
+    clipDuration > MAX_RESULT_DURATION_SECONDS
+  ) {
+    throw new MediaError("processing_failed", false);
+  }
 
   const remoteOptions = /^https?:\/\//.test(source)
     ? ["-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_delay_max", "5"]
     : [];
+  const seekOptions = startSeconds > 0 ? ["-ss", startSeconds.toFixed(3)] : [];
 
   await runCommand(
     ffmpegPath,
@@ -149,6 +179,7 @@ export async function renderVerticalVideo(
       "error",
       "-nostdin",
       ...remoteOptions,
+      ...seekOptions,
       "-i",
       source,
       "-filter_complex",
@@ -158,7 +189,7 @@ export async function renderVerticalVideo(
       "-map",
       "0:a:0?",
       "-t",
-      String(MAX_RESULT_DURATION_SECONDS),
+      clipDuration.toFixed(3),
       "-c:v",
       "libx264",
       "-preset",

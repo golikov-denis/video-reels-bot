@@ -25,6 +25,12 @@ const completed = {
   resultSize: 12345,
   resultContentType: "video/mp4" as const,
   durationSeconds: 12,
+  sourceDurationSeconds: 95.5,
+  selectionStartSeconds: 11.85,
+  selectionEndSeconds: 23.85,
+  selectionConfidence: 0.78,
+  selectionStrategy: "speech" as const,
+  detectedLanguage: "ru",
 };
 
 function fakeDatabase(job: Record<string, unknown>) {
@@ -77,6 +83,34 @@ describe("проверка payload callback", () => {
       WorkerCallbackError,
     );
   });
+
+  it("остаётся совместимым со старым worker без метаданных", () => {
+    const legacy = {
+      jobId,
+      status: "completed" as const,
+      resultObjectKey: `results/${jobId}/reel.mp4`,
+      resultSize: 12345,
+      resultContentType: "video/mp4" as const,
+      durationSeconds: 12,
+    };
+    expect(parseWorkerCallbackPayload(legacy)).toEqual(legacy);
+  });
+
+  it("отклоняет противоречивые границы и неизвестную стратегию", () => {
+    const invalidPatches = [
+      { selectionStartSeconds: 24, selectionEndSeconds: 23 },
+      { selectionStartSeconds: 0, selectionEndSeconds: 31 },
+      { selectionConfidence: Number.NaN },
+      { selectionConfidence: 1.1 },
+      { selectionStrategy: "unknown" },
+      { detectedLanguage: "language-name-is-too-long" },
+    ];
+    for (const patch of invalidPatches) {
+      expect(() => parseWorkerCallbackPayload({ ...completed, ...patch })).toThrow(
+        WorkerCallbackError,
+      );
+    }
+  });
 });
 
 describe("переходы и уведомления", () => {
@@ -87,6 +121,14 @@ describe("переходы и уведомления", () => {
 
     expect(await processWorkerCallback(completed)).toEqual({ duplicate: false });
     expect(job.status).toBe("completed");
+    expect(job).toMatchObject({
+      sourceDurationSeconds: 95.5,
+      selectionStartSeconds: 11.85,
+      selectionEndSeconds: 23.85,
+      selectionConfidence: 0.78,
+      selectionStrategy: "speech",
+      detectedLanguage: "ru",
+    });
     expect(job.notificationSentAt).toBeInstanceOf(Date);
     expect(telegramMocks.sendResultVideo).toHaveBeenCalledOnce();
 
